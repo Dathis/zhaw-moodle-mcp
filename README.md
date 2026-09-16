@@ -1,11 +1,19 @@
 # ZHAW Moodle MCP Server
 
-MCP server that lets an AI client (e.g. Claude Code) work with your ZHAW Moodle
-(`moodle.zhaw.ch`): list courses, inspect course structure, find and download
-learning materials and keep a local copy in sync.
+[![PyPI](https://img.shields.io/pypi/v/zhaw-moodle-mcp)](https://pypi.org/project/zhaw-moodle-mcp/)
+[![CI](https://github.com/Dathis/zhaw-moodle-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Dathis/zhaw-moodle-mcp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/Dathis/zhaw-moodle-mcp/blob/main/LICENSE)
+
+MCP server that lets Claude (Claude Desktop, Claude Code or any other MCP client) work with
+your ZHAW Moodle (`moodle.zhaw.ch`): list courses, find and download learning materials, keep
+a local copy in sync, and see deadlines, assignments, announcements and what is new.
 
 You log in yourself with SWITCH edu-ID in a normal browser window. The server never
-sees or stores your password; it reuses the authenticated browser session.
+sees or stores your password; it reuses the authenticated browser session, and everything
+stays on your computer.
+
+> Unofficial student project, not affiliated with or endorsed by ZHAW. Use it in line with
+> the ZHAW ICT usage rules; downloaded course material is for your personal study only.
 
 Requirements and roadmap: [REQUIREMENTS.md](https://github.com/Dathis/zhaw-moodle-mcp/blob/main/REQUIREMENTS.md) · Technical findings: [docs/spike-findings.md](https://github.com/Dathis/zhaw-moodle-mcp/blob/main/docs/spike-findings.md)
 
@@ -44,6 +52,9 @@ claude mcp add zhaw-moodle -- uvx zhaw-moodle-mcp@latest
 **3. Use it:** ask *"Which Moodle courses do I have?"*. The first time, a browser window opens —
 log in with SWITCH edu-ID there and the window closes by itself.
 Files are downloaded to the `ZHAW` folder in your home directory.
+
+More ideas: *"Sync all my courses"*, *"What do I need to submit this week?"*,
+*"What is new in Moodle since Monday?"*, *"Summarise the slides of lecture 1 in Software Engineering"*.
 
 Troubleshooting:
 
@@ -97,10 +108,16 @@ claude mcp add zhaw-moodle -- uv --directory C:/path/to/zhaw-moodle-mcp run zhaw
 Alternatively the repository contains a `.mcp.json`, so Claude Code opened in this folder offers the
 server automatically.
 
-Then ask things like *"Which Moodle courses do I have?"*, *"Sync Software Engineering 1"*,
-*"What do I need to submit this week?"* or *"What is new in Moodle since Monday?"*.
+### Study assistant (Claude Code)
+
+`.claude/agents/study-assistant.md` is a Claude Code subagent that uses this server as a tutor:
+explaining lectures, guiding exercises without handing out solutions, exam preparation,
+flashcards and deadline planning. It is available automatically when Claude Code runs in this
+folder; to use it everywhere, copy the file to `~/.claude/agents/`.
 
 ### CLI
+
+With the PyPI package, prefix the commands with `uvx` (e.g. `uvx zhaw-moodle-mcp login`).
 
 ```text
 zhaw-moodle-mcp              run the MCP server (stdio); also: python -m zhaw_moodle_mcp
@@ -171,7 +188,8 @@ validation_ttl = 120      # seconds a successful session check is trusted
 index_max_age_minutes = 60  # re-read current courses before searching if the index is older
 ```
 
-`<data dir>` is `%LOCALAPPDATA%\zhaw-moodle-mcp` on Windows, `~/.local/share/zhaw-moodle-mcp` on Linux.
+`<data dir>` is `%LOCALAPPDATA%\zhaw-moodle-mcp` on Windows, `~/Library/Application Support/zhaw-moodle-mcp`
+on macOS and `~/.local/share/zhaw-moodle-mcp` on Linux.
 
 ## Security
 

@@ -12,6 +12,9 @@ from .test_activities import FORUM, SEARCH, SUBMITTED
 
 NOW = int(time.time())
 DAY = 86400
+# The announcement must stay inside the "last 7 days" window whenever the tests run
+POSTED = NOW - DAY
+NEWS_FORUM = FORUM.replace("1788959558", str(POSTED - 442)).replace("1788960000", str(POSTED))
 
 
 def event(cmid, name, module, eventtype, due, *, overdue=False, modified=None, action="Add submission"):
@@ -50,13 +53,13 @@ def moodle():
             update(70, "configuration", at=NOW - 20 * DAY),
         ],
         forums={
-            94: FORUM.replace("forumtype-news", "forumtype-general"),
-            95: FORUM,
+            94: NEWS_FORUM.replace("forumtype-news", "forumtype-general"),
+            95: NEWS_FORUM,
         },
         posts={204711: [
             {"id": 2, "parentid": 1, "subject": "Re", "message": "<p>reply</p>", "author": {"fullname": "S"}},
             {"id": 1, "parentid": 0, "subject": "Willkommen", "message": "<p>Hallo zusammen</p>",
-             "author": {"fullname": "Anna Beispiel"}, "timecreated": 1788959558, "attachments": []},
+             "author": {"fullname": "Anna Beispiel"}, "timecreated": POSTED - 442, "attachments": []},
         ]},
         assign_pages={80: SUBMITTED, 81: None},
         search_html=SEARCH,
@@ -109,7 +112,7 @@ async def test_announcements_finds_news_forum_and_caches_it(service, moodle):
     assert moodle.page_views["/mod/forum/view.php?id=94"] == 1  # general forum is not read again
     assert moodle.page_views["/mod/forum/view.php?id=95"] == 2
 
-    newer = datetime.fromtimestamp(1788960000, UTC) + timedelta(seconds=1)
+    newer = datetime.fromtimestamp(POSTED, UTC) + timedelta(seconds=1)
     assert (await service.activities.announcements(None, newer, limit=10)).announcements == []
 
 

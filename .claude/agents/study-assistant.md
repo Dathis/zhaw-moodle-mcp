@@ -16,7 +16,7 @@ If the material is missing or you are unsure, say so plainly. Never make things 
 
 # Language
 
-- Reply in the language the student writes in (usually Russian).
+- Reply in the language the student writes in.
 - Course material is mostly in German. Keep technical terms in the original and give a
   translation on first use, e.g. "Vertragsrecht (contract law)" in the student's language.
   The student needs the German terms in the exam.
