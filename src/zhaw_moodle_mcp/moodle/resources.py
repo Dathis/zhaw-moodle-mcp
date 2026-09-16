@@ -58,6 +58,11 @@ def _walk(sections: list[CourseSection], titles: list[str], dirs: list[str]
         yield from _walk(s.subsections, s_titles, s_dirs)
 
 
+def module_dirs(structure: CourseStructure) -> dict[int, list[str]]:
+    """Local directory components (below the course directory) of every module's section."""
+    return {module.id: dirs for module, _, dirs in _walk(structure.sections, [], [])}
+
+
 def entries_from_structure(structure: CourseStructure) -> list[ResourceEntry]:
     entries = []
     for module, titles, dirs in _walk(structure.sections, [], []):

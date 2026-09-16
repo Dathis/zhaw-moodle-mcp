@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
 from bs4 import BeautifulSoup, NavigableString, Tag
@@ -26,6 +26,23 @@ class ContentLink:
     url: str
     kind: LinkKind
     activity_id: int | None = None
+
+
+_PLUGINFILE_RE = re.compile(r"/pluginfile\.php/\d+/[a-z0-9_]+/[a-z0-9_]+/(.+)$")
+
+
+def embedded_file_path(url: str) -> str | None:
+    """Stable path of a file linked in a text, e.g. 'plan.pdf' for
+    /pluginfile.php/<ctx>/mod_page/content/<revision>/plan.pdf (the revision changes on edits)."""
+    m = _PLUGINFILE_RE.search(urlparse(url).path)
+    if not m:
+        return None
+    parts = [unquote(p) for p in m.group(1).split("/") if p]
+    if len(parts) > 1 and parts[0].isdigit():
+        parts = parts[1:]  # item id / revision
+    if not parts or any(p in {".", ".."} for p in parts):
+        return None
+    return "/".join(parts)
 
 
 def _link_kind(url: str, moodle_host: str) -> tuple[LinkKind, int | None]:

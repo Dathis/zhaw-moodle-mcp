@@ -6,7 +6,7 @@ import respx
 from bs4 import BeautifulSoup
 
 from zhaw_moodle_mcp.errors import ErrorCode, MoodleError
-from zhaw_moodle_mcp.moodle.content import parse_course_page, parse_page_view, to_markdown
+from zhaw_moodle_mcp.moodle.content import embedded_file_path, parse_course_page, parse_page_view, to_markdown
 from zhaw_moodle_mcp.moodle.courses import LABEL_TEXT_LIMIT
 from zhaw_moodle_mcp.service import MoodleService
 
@@ -145,4 +145,89 @@ async def test_get_content_rejects_other_modules(service, moodle):
     assert exc.value.code == ErrorCode.RESOURCE_NOT_DOWNLOADABLE
     with pytest.raises(MoodleError) as exc:
         await service.get_content(999)
+    assert exc.value.code == ErrorCode.RESOURCE_NOT_FOUND
+
+
+def test_embedded_file_path():
+    assert embedded_file_path(f"{BASE}/pluginfile.php/9/mod_page/content/3/Plan%20A.pdf") == "Plan A.pdf"
+    assert embedded_file_path(f"{BASE}/pluginfile.php/9/mod_label/intro/Checkliste.pdf") == "Checkliste.pdf"
+    url = f"{BASE}/pluginfile.php/9/mod_page/content/3/sub/x.docx?forcedownload=1"
+    assert embedded_file_path(url) == "sub/x.docx"
+    assert embedded_file_path(f"{BASE}/pluginfile.php/9/mod_page/content/3/../x") is None
+    assert embedded_file_path(f"{BASE}/mod/page/view.php?id=1") is None
+
+
+@pytest.fixture
+def embedded_moodle():
+    fake = FakeMoodle(
+        extra_cms=[
+            {"id": "50", "name": "Checkliste", "module": "label", "url": "", "visible": True},
+            {"id": "60", "name": "Hinweise: Prüfung", "module": "page", "url": "", "visible": True},
+            {"id": "62", "name": "Ohne Dateien", "module": "page", "url": "", "visible": True},
+        ],
+        labels={50: f"<p><a href='{BASE}/pluginfile.php/7/mod_label/intro/Checkliste%20Team.pdf'>Liste</a></p>"},
+        pages={
+            60: PAGE.replace("</p></div></div>", f"""</p>
+                <a href="{BASE}/pluginfile.php/8/mod_page/content/4/Regeln.pdf">Regeln</a>
+                <a href="{BASE}/pluginfile.php/8/mod_page/content/4/Regeln.pdf?forcedownload=1">nochmal</a>
+                <a href="{BASE}/pluginfile.php/8/mod_page/content/4/anhang/Vorlage.docx">Vorlage</a>
+                <a href="{BASE}/pluginfile.php/8/mod_page/content/4/weg.pdf">kaputt</a>
+                </div></div>"""),
+            62: PAGE,
+        },
+        embedded={
+            "7/mod_label/intro/Checkliste Team.pdf": FakeFile(b"check"),
+            "8/mod_page/content/4/Regeln.pdf": FakeFile(b"regeln"),
+            "8/mod_page/content/4/anhang/Vorlage.docx": FakeFile(b"vorlage"),
+        },
+    )
+    with respx.mock(assert_all_called=False) as router:
+        fake.mount(router)
+        yield fake
+
+
+async def test_content_links_have_resource_ids(service, embedded_moodle):
+    page = await service.get_content(60)
+    assert [(link.kind, link.resource_id) for link in page.links if link.kind == "file"] == [
+        ("file", "60/Regeln.pdf"), ("file", "60/Regeln.pdf"), ("file", "60/anhang/Vorlage.docx"),
+        ("file", "60/weg.pdf")]
+    assert all(link.resource_id is None for link in page.links if link.kind != "file")
+
+
+async def test_download_single_embedded_file(service, embedded_moodle, config):
+    result = await service.download_resource("50/Checkliste Team.pdf", None, overwrite=True)
+    [f] = result.files
+    expected = config.moodle.download_directory / "Test_ Kurs" / "01 Woche 1" / "Checkliste" / "Checkliste Team.pdf"
+    assert (f.resource_id, f.path, f.status) == ("50/Checkliste Team.pdf", str(expected), "downloaded")
+    assert expected.read_bytes() == b"check"
+
+    again = await service.download_resource("50/Checkliste Team.pdf", None, overwrite=False)
+    assert again.files[0].status == "unchanged"
+
+
+async def test_download_all_files_of_page(service, embedded_moodle, config):
+    result = await service.download_resource("60", None, overwrite=True)
+    base = config.moodle.download_directory / "Test_ Kurs" / "01 Woche 1" / "Hinweise_ Prüfung"
+    assert sorted(f.path for f in result.files) == [str(base / "Regeln.pdf"), str(base / "anhang" / "Vorlage.docx")]
+    assert [f.resource_id for f in result.failed] == ["60/weg.pdf"]  # dead link does not stop the rest
+    assert (base / "anhang" / "Vorlage.docx").read_bytes() == b"vorlage"
+
+
+async def test_download_embedded_file_to_destination(service, embedded_moodle, config):
+    result = await service.download_resource("60/anhang/Vorlage.docx", "exports", overwrite=True)
+    assert result.files[0].path == str(config.moodle.download_directory / "exports" / "anhang" / "Vorlage.docx")
+    with pytest.raises(MoodleError) as exc:  # a single requested file that is gone is an error
+        await service.download_resource("60/weg.pdf", None, overwrite=True)
+    assert exc.value.code == ErrorCode.RESOURCE_NOT_FOUND
+
+
+async def test_download_embedded_errors(service, embedded_moodle):
+    with pytest.raises(MoodleError) as exc:
+        await service.download_resource("62", None, overwrite=True)
+    assert exc.value.code == ErrorCode.RESOURCE_NOT_DOWNLOADABLE
+    with pytest.raises(MoodleError) as exc:
+        await service.download_resource("60/nicht-da.pdf", None, overwrite=True)
+    assert exc.value.code == ErrorCode.RESOURCE_NOT_FOUND
+    with pytest.raises(MoodleError) as exc:
+        await service.download_resource("12345/x.pdf", None, overwrite=True)
     assert exc.value.code == ErrorCode.RESOURCE_NOT_FOUND

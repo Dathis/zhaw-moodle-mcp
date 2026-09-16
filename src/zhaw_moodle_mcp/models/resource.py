@@ -34,6 +34,12 @@ class DownloadedFile(BaseModel):
     status: Literal["downloaded", "unchanged"]
 
 
+class DownloadFailure(BaseModel):
+    resource_id: str
+    error: str
+
+
 class DownloadResult(BaseModel):
     resource_id: str
     files: list[DownloadedFile]
+    failed: list[DownloadFailure] = Field(default_factory=list, description="Linked files that could not be loaded")

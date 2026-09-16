@@ -20,7 +20,7 @@ Requirements and roadmap: [REQUIREMENTS.md](REQUIREMENTS.md) · Technical findin
 | `moodle_get_course` | Sections, subsections and all activities of a course, incl. the text of text blocks |
 | `moodle_get_content` | Text of a Moodle page or text block as Markdown, with its links |
 | `moodle_list_resources` | Files (pdf, powerpoint, word, …), folders (incl. their files), links, pages |
-| `moodle_download_resource` | Download a file or a whole folder, returns local paths |
+| `moodle_download_resource` | Download a file, a whole folder or the files linked in a page/text block, returns local paths |
 | `moodle_sync_course` | Download new/changed files, report renamed/removed ones (`dry_run` supported) |
 | `moodle_sync_all` | Sync all current courses, per-course summary |
 | `moodle_search` | Find courses, sections, materials, assignments, quizzes by name (umlaut/typo tolerant); falls back to Moodle full-text search |
@@ -90,8 +90,9 @@ SQLite metadata (course index for search/changes, known files, ETags, local path
   before the requested date; otherwise changes are reported as `changed`.
 - Reading assignments or pages opens them in Moodle, which is logged as a view (and may mark a
   page as completed if the course tracks page views).
-- Files linked inside pages or text blocks are returned as links (`kind: file`) but cannot be
-  downloaded with `moodle_download_resource` yet.
+- Files linked inside pages or text blocks get a `resource_id` (`<activity id>/<file>`) for
+  `moodle_download_resource`; the id of the page/block itself downloads all its linked files into
+  `<course>/<section>/<page name>/`. These files are not part of `moodle_sync_course`.
 
 ## Configuration
 

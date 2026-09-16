@@ -21,7 +21,7 @@ from .course import (
     CourseSection,
     CourseStructure,
 )
-from .resource import DownloadedFile, DownloadResult, Resource, ResourceList
+from .resource import DownloadedFile, DownloadFailure, DownloadResult, Resource, ResourceList
 from .search import SearchHit, SearchResult
 from .sync import CourseSyncSummary, SyncAllResult, SyncChange, SyncResult
 
@@ -45,6 +45,7 @@ __all__ = [
     "Deadline",
     "DeadlineList",
     "DownloadedFile",
+    "DownloadFailure",
     "DownloadResult",
     "LogoutResult",
     "ModuleChange",

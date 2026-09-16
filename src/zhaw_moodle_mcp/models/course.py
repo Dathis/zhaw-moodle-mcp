@@ -57,6 +57,8 @@ class ContentLink(BaseModel):
         description="file = file stored in Moodle, activity = link to another Moodle activity "
                     "(see activity_id), moodle = other Moodle page, external = outside Moodle")
     activity_id: int | None = None
+    resource_id: str | None = Field(
+        default=None, description="For files: id for moodle_download_resource ('<activity id>/<file path>')")
 
 
 class ActivityContent(BaseModel):

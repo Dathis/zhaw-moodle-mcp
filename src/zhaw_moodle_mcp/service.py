@@ -26,6 +26,7 @@ from .models import (
     CourseStructure,
     CourseSyncSummary,
     DownloadedFile,
+    DownloadFailure,
     DownloadResult,
     LogoutResult,
     ResourceList,
@@ -35,14 +36,19 @@ from .models import (
 from .models.course import CourseStatus
 from .moodle import courses as moodle_courses
 from .moodle.client import MoodleClient
-from .moodle.content import Content, parse_page_view
-from .moodle.resources import ResourceEntry, entries_from_structure, expand_folders
+from .moodle.content import Content, embedded_file_path, parse_page_view
+from .moodle.content import ContentLink as ParsedLink
+from .moodle.parser import sanitize_component
+from .moodle.resources import ResourceEntry, entries_from_structure, expand_folders, module_dirs
 from .sync.database import Database
 from .sync.sync_service import SyncService
 
 log = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+# activities whose text can link to files (downloadable via '<cmid>/<path>')
+TEXT_MODULES = {"page", "label"}
 
 
 def http_date(value: str | None) -> datetime | None:
@@ -179,8 +185,8 @@ class MoodleService:
 
     # --- page / label content ----------------------------------------------
 
-    async def _find_module(self, activity_id: int) -> tuple[Course, CourseModule, str]:
-        """Course, module and section path of an activity; refreshes the index if unknown."""
+    async def _find_module(self, activity_id: int) -> tuple[CourseStructure, CourseModule, str]:
+        """Course structure, module and section path of an activity; refreshes the index if unknown."""
         for attempt in range(2):
             row = self.db.conn.execute(
                 "SELECT course_id FROM modules WHERE id = ? AND removed_at IS NULL", (activity_id,)).fetchone()
@@ -191,11 +197,14 @@ class MoodleService:
                 structure = await self.get_course(course_id)
                 for section, module in moodle_courses.walk_modules(structure):
                     if module.id == activity_id:
-                        return structure.course, module, section
+                        return structure, module, section
         raise MoodleError(ErrorCode.RESOURCE_NOT_FOUND, f"Activity {activity_id} not found in your courses.")
 
     async def get_content(self, activity_id: int) -> ActivityContent:
-        course, module, section = await self._find_module(activity_id)
+        structure, module, section = await self._find_module(activity_id)
+        return await self._content(structure.course, module, section)
+
+    async def _content(self, course: Course, module: CourseModule, section: str) -> ActivityContent:
         base = dict(id=module.id, course_id=course.id, course_name=course.name, section=section,
                     name=module.name, module=module.module, url=module.url)
         if module.module == "label":
@@ -219,8 +228,62 @@ class MoodleService:
                               "Use moodle_download_resource for files and moodle_list_assignments for assignments.")
         return ActivityContent(
             **base, text=content.text, modified_at=content.modified_at,
-            links=[ContentLink(text=link.text, url=link.url, kind=link.kind, activity_id=link.activity_id)
-                   for link in content.links],
+            links=[self._content_link(module.id, link) for link in content.links],
+        )
+
+    @staticmethod
+    def _content_link(activity_id: int, link: ParsedLink) -> ContentLink:
+        path = embedded_file_path(link.url) if link.kind == "file" else None
+        return ContentLink(text=link.text, url=link.url, kind=link.kind, activity_id=link.activity_id,
+                           resource_id=f"{activity_id}/{path}" if path else None)
+
+    async def _download_embedded(self, structure: CourseStructure, module: CourseModule, section: str,
+                                 file_path: str, destination: Path | None, overwrite: bool) -> DownloadResult:
+        """Files linked in the text of a page or label: one (file_path) or all of them.
+        When downloading all, files that are gone are reported instead of failing the rest."""
+        course = structure.course
+        content = await self._content(course, module, section)
+        files: dict[str, ContentLink] = {}
+        for link in content.links:
+            if link.resource_id and link.resource_id not in files:
+                files[link.resource_id] = link
+        if file_path:
+            wanted = f"{module.id}/{file_path}"
+            if wanted not in files:
+                raise MoodleError(ErrorCode.RESOURCE_NOT_FOUND,
+                                  f"No file {file_path!r} is linked in {module.name!r}.")
+            files = {wanted: files[wanted]}
+        if not files:
+            raise MoodleError(ErrorCode.RESOURCE_NOT_DOWNLOADABLE,
+                              f"{module.name!r} contains no downloadable files; read it with moodle_get_content.")
+        if destination is None:
+            dirs = module_dirs(structure).get(module.id, [])
+            destination = self.config.moodle.download_directory.joinpath(
+                sanitize_component(course.name), *dirs, sanitize_component(module.name))
+
+        async def fetch(resource_id: str, link: ContentLink) -> DownloadedFile | DownloadFailure:
+            parts = resource_id.split("/", 1)[1].split("/")
+            target = destination.joinpath(*map(sanitize_component, parts))
+            if not overwrite and target.exists():
+                return DownloadedFile(resource_id=resource_id, path=str(target),
+                                      size=target.stat().st_size, status="unchanged")
+            try:
+                info = await self.client.download(link.url, target)
+            except MoodleError as exc:
+                if file_path or exc.code not in (ErrorCode.RESOURCE_NOT_FOUND, ErrorCode.DOWNLOAD_FAILED):
+                    raise
+                return DownloadFailure(resource_id=resource_id, error=str(exc))
+            return DownloadedFile(resource_id=resource_id, path=str(info.path), size=info.size,
+                                  status="downloaded")
+
+        async def op() -> list[DownloadedFile | DownloadFailure]:
+            return list(await asyncio.gather(*(fetch(rid, link) for rid, link in files.items())))
+
+        results = await self.run(op)
+        return DownloadResult(
+            resource_id=f"{module.id}/{file_path}" if file_path else str(module.id),
+            files=[r for r in results if isinstance(r, DownloadedFile)],
+            failed=[r for r in results if isinstance(r, DownloadFailure)],
         )
 
     # --- resources ----------------------------------------------------------
@@ -274,12 +337,26 @@ class MoodleService:
 
     async def download_resource(self, resource_id: str, destination: str | None,
                                 overwrite: bool) -> DownloadResult:
+        dest = self._destination(destination)
+        cmid_part, _, file_path = resource_id.partition("/")
+        if cmid_part.isdigit():
+            row = self.db.conn.execute(
+                "SELECT module FROM modules WHERE id = ? AND removed_at IS NULL", (int(cmid_part),)).fetchone()
+            if row is None or row["module"] in TEXT_MODULES:
+                try:
+                    structure, module, section = await self._find_module(int(cmid_part))
+                except MoodleError as exc:
+                    if exc.code != ErrorCode.RESOURCE_NOT_FOUND:
+                        raise
+                    structure = None  # unknown activity: the general lookup reports it
+                if structure is not None and module.module in TEXT_MODULES:
+                    return await self._download_embedded(structure, module, section, file_path, dest, overwrite)
+
         course, entry = await self._find_entry(resource_id)
         if not entry.resource.downloadable:
             raise MoodleError(ErrorCode.RESOURCE_NOT_DOWNLOADABLE,
                               f"{entry.resource.name!r} is a {entry.resource.type}, not a file. "
                               f"Open it at {entry.resource.url}")
-        dest = self._destination(destination)
 
         async def op() -> list[DownloadedFile]:
             if entry.is_file:

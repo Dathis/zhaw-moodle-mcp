@@ -23,13 +23,16 @@ def register(server: MCPServer, service: MoodleService) -> None:
     async def moodle_download_resource(
         resource_id: str, destination: str | None = None, overwrite: bool = True
     ) -> DownloadResult:
-        """Download a file, or all files of a folder, and return the local paths.
+        """Download a file, all files of a folder, or files linked in a page/text block,
+        and return the local paths.
 
         By default files go to the managed directory <download_directory>/<course>/<section>/,
         which moodle_sync_course also uses.
 
         Args:
-            resource_id: id from moodle_list_resources ("<cmid>" or "<folder cmid>/<path>")
+            resource_id: id from moodle_list_resources ("<cmid>" or "<folder cmid>/<path>"),
+                or a file link's resource_id from moodle_get_content ("<page/label id>/<file>");
+                the id of a page or text block downloads all files linked in it
             destination: optional target directory; relative paths are resolved
                 against the configured download directory
             overwrite: replace an existing local file (otherwise it is left as is)

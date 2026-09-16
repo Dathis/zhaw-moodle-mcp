@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from urllib.parse import unquote
 
 import httpx
 import respx
@@ -43,6 +44,7 @@ class FakeMoodle:
     search_html: str = ""
     labels: dict[int, str] = field(default_factory=dict)  # cmid -> label html on the course page
     pages: dict[int, str | None] = field(default_factory=dict)  # cmid -> page view html, None -> redirect
+    embedded: dict[str, FakeFile] = field(default_factory=dict)  # "<ctx>/<component>/<rest>" -> file
     page_views: dict[str, int] = field(default_factory=dict)
 
     def resource_url(self, cmid: int) -> str:
@@ -127,8 +129,10 @@ class FakeMoodle:
                 _, filename, candidate = self.resources[cmid]
                 if parts[-1] == filename:  # revision is ignored, like Moodle does
                     f = candidate
-        else:
+        elif parts[3] == "mod_folder":
             f = self.folder.get("/".join(parts[6:]))
+        else:
+            f = self.embedded.get(unquote("/".join(parts[2:])))
         if f is None:
             return httpx.Response(404)
         headers = {"etag": f.etag, "content-type": f.content_type,
