@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Auth / session data — must never be committed
+storage_state.json
+cookies.json
+*.storage_state.json
+browser-profile/
+auth/
+
+# Spike output (raw Moodle HTML/JSON contains personal data)
+spike/output/
+
+# Local config / data
+config.toml
+*.db
+*.sqlite
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
