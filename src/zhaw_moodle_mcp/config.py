@@ -1,12 +1,16 @@
 """Configuration loaded from an optional TOML file with safe defaults.
 
-Location: `<user config dir>/zhaw-moodle-mcp/config.toml`, overridable via the
-`ZHAW_MOODLE_MCP_CONFIG` environment variable. Passwords are never configured.
+Location: `<app dir>/config.toml`, overridable via the `ZHAW_MOODLE_MCP_CONFIG`
+environment variable. A few settings can also come from environment variables
+(used by the Claude Desktop extension). Passwords are never configured.
 """
 
 from __future__ import annotations
 
+import logging
 import os
+import shutil
+import sys
 import tomllib
 from pathlib import Path
 from typing import Literal
@@ -14,11 +18,34 @@ from typing import Literal
 from platformdirs import user_config_dir, user_data_dir
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
+log = logging.getLogger(__name__)
+
 APP_NAME = "zhaw-moodle-mcp"
 CONFIG_ENV_VAR = "ZHAW_MOODLE_MCP_CONFIG"
+HOME_ENV_VAR = "ZHAW_MOODLE_MCP_HOME"
+DOWNLOAD_DIR_ENV_VAR = "ZHAW_MOODLE_DOWNLOAD_DIR"
+BROWSER_ENV_VAR = "ZHAW_MOODLE_BROWSER"
 
-CONFIG_DIR = Path(user_config_dir(APP_NAME, appauthor=False))
-DATA_DIR = Path(user_data_dir(APP_NAME, appauthor=False))
+# Before v0.4 everything lived in the platform's app-data folders.
+LEGACY_CONFIG_DIR = Path(user_config_dir(APP_NAME, appauthor=False))
+LEGACY_DATA_DIR = Path(user_data_dir(APP_NAME, appauthor=False))
+
+
+def _app_dirs() -> tuple[Path, Path]:
+    """(config dir, data dir). On Windows both are ~/.zhaw-moodle-mcp: Claude from the
+    Microsoft Store redirects AppData writes of the processes it starts into its own
+    package folder, so a session stored there would be invisible to the CLI (and vice versa)."""
+    override = os.environ.get(HOME_ENV_VAR)
+    if override:
+        home = Path(os.path.expandvars(override)).expanduser()
+        return home, home
+    if sys.platform == "win32":
+        home = Path.home() / f".{APP_NAME}"
+        return home, home
+    return LEGACY_CONFIG_DIR, LEGACY_DATA_DIR
+
+
+CONFIG_DIR, DATA_DIR = _app_dirs()
 
 
 def _expand(value: str | Path) -> Path:
@@ -105,9 +132,42 @@ def config_path() -> Path:
     return _expand(override) if override else CONFIG_DIR / "config.toml"
 
 
+def migrate_legacy_files() -> None:
+    """Copy config and metadata from the pre-v0.4 location once (the login is redone)."""
+    if (CONFIG_DIR, DATA_DIR) == (LEGACY_CONFIG_DIR, LEGACY_DATA_DIR) or DATA_DIR.exists():
+        return
+    moves = [(LEGACY_CONFIG_DIR / "config.toml", CONFIG_DIR / "config.toml"),
+             (LEGACY_DATA_DIR / "moodle.db", DATA_DIR / "moodle.db")]
+    for old, new in moves:
+        if old.is_file() and not new.exists():
+            try:
+                new.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(old, new)
+                log.info("Copied %s from the previous app folder", old.name)
+            except OSError as exc:
+                log.warning("Could not copy %s: %s", old.name, exc.strerror)
+
+
+def _apply_env(config: Config) -> Config:
+    download_dir = os.environ.get(DOWNLOAD_DIR_ENV_VAR, "").strip()
+    browser = os.environ.get(BROWSER_ENV_VAR, "").strip().lower()
+    moodle = {"download_directory": download_dir} if download_dir else {}
+    browser_settings = {"name": browser} if browser else {}
+    if not moodle and not browser_settings:
+        return config
+    data = config.model_dump()
+    data["moodle"].update(moodle)
+    data["browser"].update(browser_settings)
+    return Config.model_validate(data)
+
+
 def load_config(path: Path | None = None) -> Config:
-    path = path or config_path()
-    if not path.exists():
-        return Config()
-    with path.open("rb") as f:
-        return Config.model_validate(tomllib.load(f))
+    """Settings from the TOML file, then environment variables."""
+    if path is None:
+        migrate_legacy_files()
+        path = config_path()
+    config = Config()
+    if path.exists():
+        with path.open("rb") as f:
+            config = Config.model_validate(tomllib.load(f))
+    return _apply_env(config)

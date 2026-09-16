@@ -43,3 +43,15 @@ class DownloadResult(BaseModel):
     resource_id: str
     files: list[DownloadedFile]
     failed: list[DownloadFailure] = Field(default_factory=list, description="Linked files that could not be loaded")
+
+
+class FileText(BaseModel):
+    resource_id: str
+    path: str = Field(description="Local file the text was read from")
+    file_type: str = Field(description="pdf, powerpoint, word, html or text")
+    text: str = Field(description="Extracted text; pages/slides are marked '--- Seite N ---' / '--- Folie N ---'")
+    total_pages: int | None = Field(default=None, description="Pages (PDF) or slides (PowerPoint)")
+    pages: str | None = Field(default=None, description="Range contained in text, e.g. '1-12'")
+    truncated: bool = False
+    next_pages: str | None = Field(default=None, description="Pass as `pages` to continue reading")
+    note: str | None = None

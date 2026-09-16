@@ -51,6 +51,14 @@ class SessionStore:
     def exists(self) -> bool:
         return self.storage_state.is_file()
 
+    def signature(self) -> tuple[int, int] | None:
+        """Changes whenever the stored session is written or deleted (by any process)."""
+        try:
+            st = self.storage_state.stat()
+        except OSError:
+            return None
+        return st.st_mtime_ns, st.st_size
+
     def prepare(self) -> None:
         ensure_private_dir(self.storage_state.parent)
         ensure_private_dir(self.profile_dir)

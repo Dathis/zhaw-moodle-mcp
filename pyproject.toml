@@ -1,6 +1,6 @@
 [project]
 name = "zhaw-moodle-mcp"
-version = "0.3.0"
+version = "0.4.0"
 description = "MCP server for ZHAW Moodle: courses, learning materials, downloads and sync via SWITCH edu-ID browser login"
 readme = "README.md"
 license = "MIT"
@@ -28,6 +28,9 @@ dependencies = [
     "mcp>=2.2.0",
     "platformdirs>=4.11.8",
     "playwright>=1.63.0",
+    "pypdf>=6.19.0",
+    "python-docx>=1.2.0",
+    "python-pptx>=1.0.2",
     "tzdata>=2026.4",
 ]
 

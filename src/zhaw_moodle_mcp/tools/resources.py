@@ -1,6 +1,6 @@
 from mcp.server.mcpserver import MCPServer
 
-from ..models import DownloadResult, ResourceList
+from ..models import DownloadResult, FileText, ResourceList
 from ..service import MoodleService
 from . import READ_ONLY, WRITES_LOCAL_FILES, tool_call
 
@@ -39,3 +39,18 @@ def register(server: MCPServer, service: MoodleService) -> None:
         """
         with tool_call("moodle_download_resource", resource_id=resource_id):
             return await service.download_resource(resource_id, destination, overwrite)
+
+    @server.tool(annotations=WRITES_LOCAL_FILES)
+    async def moodle_read_file(resource_id: str, pages: str | None = None, max_chars: int = 30000) -> FileText:
+        """Read the text of a course file (PDF, PowerPoint .pptx, Word .docx, HTML, text).
+        Downloads the file first if needed. Use this to summarise or explain lecture slides,
+        scripts and exercise sheets. Long files come in parts: continue with `next_pages`.
+
+        Args:
+            resource_id: id of a single file from moodle_list_resources, moodle_search or
+                moodle_get_content (folder files: "<folder id>/<path>")
+            pages: page/slide range for PDF and PowerPoint, e.g. "1-10", "5" or "11-"
+            max_chars: maximum characters to return (1000-100000)
+        """
+        with tool_call("moodle_read_file", resource_id=resource_id, pages=pages):
+            return await service.read_file(resource_id, pages, max(1000, min(max_chars, 100000)))

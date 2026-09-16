@@ -1,6 +1,7 @@
 name: Release
 
-# Push a tag like v0.3.0 (must match the version in pyproject.toml) to publish to PyPI.
+# Push a tag like v0.4.0 (must match the version in pyproject.toml) to publish to PyPI
+# and attach the Claude Desktop extension (.mcpb) to a GitHub release.
 on:
   push:
     tags: ["v*"]
@@ -48,3 +49,24 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  extension:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: uv sync --locked
+      - run: uv run python scripts/build_extension.py
+      - name: Create GitHub release with the extension
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" dist/*.mcpb
+          --title "$GITHUB_REF_NAME"
+          --notes "Claude Desktop: download zhaw-moodle-*.mcpb and open it (or Settings → Extensions → Install Extension). Python package: https://pypi.org/project/zhaw-moodle-mcp/"

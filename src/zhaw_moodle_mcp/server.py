@@ -7,6 +7,7 @@ from mcp.server.mcpserver import MCPServer
 
 from . import __version__
 from .config import Config
+from .prompts import register_prompts
 from .service import MoodleService
 from .tools import register_all
 
@@ -17,7 +18,7 @@ assignments, deadlines, announcements and recent changes.
 Authentication happens in a browser window where the user signs in with SWITCH edu-ID;
 tools trigger it automatically when needed. Never ask the user for passwords or cookies.
 Typical flows: moodle_search or moodle_list_courses -> moodle_get_course / moodle_list_resources ->
-moodle_download_resource or moodle_sync_course; "what is due / new?" -> moodle_get_deadlines,
+moodle_read_file, moodle_download_resource or moodle_sync_course; "what is due / new?" -> moodle_get_deadlines,
 moodle_get_recent_changes, moodle_get_announcements."""
 
 
@@ -38,4 +39,5 @@ def create_server(config: Config) -> MCPServer:
         lifespan=lifespan,
     )
     register_all(server, service)
+    register_prompts(server)
     return server

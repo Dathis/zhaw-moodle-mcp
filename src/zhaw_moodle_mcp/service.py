@@ -28,6 +28,7 @@ from .models import (
     DownloadedFile,
     DownloadFailure,
     DownloadResult,
+    FileText,
     LogoutResult,
     ResourceList,
     SyncAllResult,
@@ -38,6 +39,7 @@ from .moodle import courses as moodle_courses
 from .moodle.client import MoodleClient
 from .moodle.content import Content, embedded_file_path, parse_page_view
 from .moodle.content import ContentLink as ParsedLink
+from .moodle.documents import extract_text
 from .moodle.parser import sanitize_component
 from .moodle.resources import ResourceEntry, entries_from_structure, expand_folders, module_dirs
 from .sync.database import Database
@@ -67,6 +69,7 @@ class MoodleService:
         self.sync = SyncService(self.client, self.db, config.moodle.download_directory)
         self._login_lock = asyncio.Lock()
         self._validated_at: float | None = None
+        self._state_signature = self.store.signature()
         self._courses: dict[int, Course] = {}
         self._label_texts: dict[int, dict[int, Content]] = {}  # course id -> label cmid -> content
         self.activities = ActivityService(self)
@@ -104,6 +107,7 @@ class MoodleService:
         """Caller must hold the login lock."""
         log.info("Authentication state: login required")
         await interactive_login(self.config.moodle.base_url, self.config.browser, self.store)
+        self._state_signature = self.store.signature()
         await self.client.reset()
         if not await self.client.check_session():
             raise MoodleError(ErrorCode.LOGIN_FAILED, "Login finished but Moodle does not accept the session.")
@@ -120,12 +124,23 @@ class MoodleService:
                 pass  # offline: still remove local state
         await self.client.reset()
         self.store.clear()
+        self._state_signature = self.store.signature()
         self._validated_at = None
         log.info("Authentication state: logged out")
         return LogoutResult(logged_out=True, server_session_invalidated=server_logout,
                             message="Local session removed; the next request requires login.")
 
+    async def _follow_external_changes(self) -> None:
+        """Pick up a logout or login done by another process (e.g. the CLI)."""
+        signature = self.store.signature()
+        if signature != self._state_signature:
+            log.info("Stored session changed outside this server, reloading it")
+            self._state_signature = signature
+            self._validated_at = None
+            await self.client.reset()
+
     async def _ensure_session(self) -> None:
+        await self._follow_external_changes()
         ttl = self.config.session.validation_ttl
         if self._validated_at is not None and time.monotonic() - self._validated_at < ttl:
             return
@@ -370,6 +385,25 @@ class MoodleService:
                     for t, r in zip(targets, results, strict=True)]
 
         return DownloadResult(resource_id=resource_id, files=await self.run(op))
+
+    async def read_file(self, resource_id: str, pages: str | None, max_chars: int) -> FileText:
+        """Text of a single course file; downloads it first if it is not stored locally yet."""
+        result = await self.download_resource(resource_id, None, overwrite=False)
+        if len(result.files) != 1:
+            ids = ", ".join(f.resource_id for f in result.files[:10])
+            raise MoodleError(ErrorCode.RESOURCE_NOT_DOWNLOADABLE,
+                              f"{resource_id} contains {len(result.files)} files; read them one by one: {ids}")
+        file = result.files[0]
+        doc = await asyncio.to_thread(extract_text, Path(file.path), pages, max_chars, self.client.base_url)
+        next_pages = None
+        if doc.truncated and doc.last_page is not None and doc.total_pages:
+            next_pages = f"{doc.last_page + 1}-"
+        return FileText(
+            resource_id=file.resource_id, path=file.path, file_type=doc.file_type, text=doc.text,
+            total_pages=doc.total_pages,
+            pages=f"{doc.first_page}-{doc.last_page}" if doc.first_page and doc.last_page else None,
+            truncated=doc.truncated, next_pages=next_pages, note=doc.note,
+        )
 
     def _destination(self, destination: str | None) -> Path | None:
         if not destination:
