@@ -16,9 +16,6 @@ cookies.json
 browser-profile/
 /auth/
 
-# Spike output (raw Moodle HTML/JSON contains personal data)
-spike/output/
-
 # Local config / data
 config.toml
 *.db
