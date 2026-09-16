@@ -1,2 +1,9 @@
+"""ZHAW Moodle MCP server."""
+
+__version__ = "0.1.0"
+
+
 def main() -> None:
-    print("Hello from zhaw-moodle-mcp!")
+    from .cli import main as cli_main
+
+    cli_main()

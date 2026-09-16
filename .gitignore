@@ -9,12 +9,12 @@ dist/
 .ruff_cache/
 .mypy_cache/
 
-# Auth / session data — must never be committed
+# Auth / session data - must never be committed
 storage_state.json
 cookies.json
 *.storage_state.json
 browser-profile/
-auth/
+/auth/
 
 # Spike output (raw Moodle HTML/JSON contains personal data)
 spike/output/

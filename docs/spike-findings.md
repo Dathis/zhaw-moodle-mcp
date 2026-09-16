@@ -47,6 +47,18 @@ Module types seen across 5 courses: resource, folder, url, page, label, forum, a
 4. Sync: HEAD → compare `ETag`/`Last-Modified` with SQLite; download only on change; store sha256.
 5. Session validation: `GET /my/` + guest check; AJAX top-level error also signals expiry.
 
+## Learned during v0.1 implementation
+
+- Some course files are HTML themselves (e.g. `*_player.html`, `text/html`) → a `text/html`
+  response from `pluginfile.php` is **not** a sign of an expired session; only redirects are.
+- Apache compresses GET responses and appends `-gzip` to the ETag, HEAD responses have the plain
+  ETag → ETags must be normalised before comparing.
+- `pluginfile.php/<ctx>/mod_resource/content/<revision>/<filename>` ignores the revision; after a
+  file is replaced under a new name the old URL is 404 → re-resolve via `view.php?redirect=1`.
+- `view.php` counts as an activity view, so sync resolves each file URL once, stores it and uses
+  HEAD on `pluginfile.php` afterwards.
+- A full sync of a course with 37 files takes ~12 s when nothing changed.
+
 ## Open questions
 
 - Idle timeout of `MoodleSession`.
