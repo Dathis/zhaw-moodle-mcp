@@ -2,7 +2,7 @@ from typing import Literal
 
 from mcp.server.mcpserver import MCPServer
 
-from ..models import CourseList, CourseStructure
+from ..models import ActivityContent, CourseList, CourseStructure
 from ..service import MoodleService
 from . import READ_ONLY, tool_call
 
@@ -23,9 +23,22 @@ def register(server: MCPServer, service: MoodleService) -> None:
     async def moodle_get_course(course_id: int) -> CourseStructure:
         """Get the structure of a course: sections, nested subsections and all
         activities/materials (files, folders, links, pages, quizzes, assignments, ...).
+        Text blocks (labels) include their text.
 
         Args:
             course_id: course id from moodle_list_courses
         """
         with tool_call("moodle_get_course", course_id=course_id):
             return await service.get_course(course_id)
+
+    @server.tool(annotations=READ_ONLY)
+    async def moodle_get_content(activity_id: int) -> ActivityContent:
+        """Read the text of a Moodle page ("Textseite") or text block ("Textfeld"/label) as
+        Markdown, with the links it contains. Such texts often hold instructions, rules for
+        assignments and exams, or reading lists. Opening a page counts as a view in Moodle.
+
+        Args:
+            activity_id: id (cmid) of a page or label from moodle_get_course or moodle_search
+        """
+        with tool_call("moodle_get_content", activity_id=activity_id):
+            return await service.get_content(activity_id)

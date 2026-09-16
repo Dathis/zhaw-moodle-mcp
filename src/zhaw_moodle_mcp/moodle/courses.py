@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -12,7 +13,8 @@ from ..models import Course, CourseModule, CourseSection, CourseStructure
 from ..models.course import CourseStatus
 from ..sync.database import IndexedModule, IndexedSection
 from .client import MoodleAjaxError, MoodleClient
-from .parser import DOWNLOADABLE_MODULES, MODULE_TYPES, clean_text, parse_activity_icons, type_from_icon
+from .content import CoursePage, parse_course_page
+from .parser import DOWNLOADABLE_MODULES, MODULE_TYPES, clean_text, type_from_icon
 
 # Moodle timeline classification -> our status
 _CLASSIFICATIONS: dict[str, CourseStatus] = {"inprogress": "active", "past": "past", "future": "future"}
@@ -60,12 +62,17 @@ async def get_course_state(client: MoodleClient, course_id: int) -> dict[str, An
     return json.loads(raw) if isinstance(raw, str) else raw
 
 
-async def get_activity_icons(client: MoodleClient, course_id: int) -> dict[int, str]:
+# label texts longer than this are cut in the course structure (full text: moodle_get_content)
+LABEL_TEXT_LIMIT = 1000
+
+
+async def get_course_page(client: MoodleClient, course_id: int) -> CoursePage:
     html = await client.get_html("/course/view.php", {"id": course_id})
-    return parse_activity_icons(html)
+    return parse_course_page(html, client.base_url)
 
 
-def module_from_state(cm: dict[str, Any], icons: dict[int, str]) -> CourseModule:
+def module_from_state(cm: dict[str, Any], icons: dict[int, str],
+                      labels: dict[int, str] | None = None) -> CourseModule:
     cmid = int(cm["id"])
     module = cm.get("module", "")
     if module == "resource":
@@ -74,6 +81,8 @@ def module_from_state(cm: dict[str, Any], icons: dict[int, str]) -> CourseModule
         type_ = MODULE_TYPES.get(module, module)
     # uservisible is false e.g. for activities locked by access restrictions
     accessible = bool(cm.get("uservisible", True))
+    text = (labels or {}).get(cmid) or None
+    truncated = text is not None and len(text) > LABEL_TEXT_LIMIT
     return CourseModule(
         id=cmid,
         name=clean_text(cm.get("name")),
@@ -82,17 +91,20 @@ def module_from_state(cm: dict[str, Any], icons: dict[int, str]) -> CourseModule
         url=cm.get("url") or None,
         downloadable=module in DOWNLOADABLE_MODULES and accessible,
         visible=bool(cm.get("visible", True)) and accessible,
+        text=text[:LABEL_TEXT_LIMIT].rstrip() + " …" if truncated else text,
+        text_truncated=truncated,
     )
 
 
-def build_structure(course: Course, state: dict[str, Any], icons: dict[int, str]) -> CourseStructure:
+def build_structure(course: Course, state: dict[str, Any], icons: dict[int, str],
+                    labels: dict[int, str] | None = None) -> CourseStructure:
     cms = {str(cm["id"]): cm for cm in state.get("cm", [])}
     sections: dict[str, CourseSection] = {}
     parents: dict[str, str] = {}
     for s in state.get("section", []):
         sid = str(s["id"])
         modules = [
-            module_from_state(cms[cmid], icons)
+            module_from_state(cms[cmid], icons, labels)
             for cmid in s.get("cmlist", [])
             if cmid in cms and cms[cmid].get("module") != "subsection"  # represented as subsection
         ]
@@ -131,3 +143,15 @@ def index_rows(structure: CourseStructure) -> tuple[list[IndexedSection], list[I
 
     walk(structure.sections, [])
     return sections, modules
+
+
+def walk_modules(structure: CourseStructure) -> Iterator[tuple[str, CourseModule]]:
+    """(section path, module) for every module, subsections included."""
+    def walk(items: list[CourseSection], parents: list[str]) -> Iterator[tuple[str, CourseModule]]:
+        for s in items:
+            path = [*parents, s.title]
+            for m in s.modules:
+                yield " / ".join(path), m
+            yield from walk(s.subsections, path)
+
+    yield from walk(structure.sections, [])

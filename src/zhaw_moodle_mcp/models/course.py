@@ -32,6 +32,8 @@ class CourseModule(BaseModel):
     url: str | None = None
     downloadable: bool
     visible: bool = True
+    text: str | None = Field(default=None, description="Text of a label (text block) as Markdown")
+    text_truncated: bool = Field(default=False, description="Full text via moodle_get_content")
 
 
 class CourseSection(BaseModel):
@@ -46,3 +48,27 @@ class CourseSection(BaseModel):
 class CourseStructure(BaseModel):
     course: Course
     sections: list[CourseSection]
+
+
+class ContentLink(BaseModel):
+    text: str
+    url: str
+    kind: Literal["file", "activity", "moodle", "external"] = Field(
+        description="file = file stored in Moodle, activity = link to another Moodle activity "
+                    "(see activity_id), moodle = other Moodle page, external = outside Moodle")
+    activity_id: int | None = None
+
+
+class ActivityContent(BaseModel):
+    id: int
+    course_id: int
+    course_name: str
+    section: str
+    name: str
+    module: str = Field(description="page or label")
+    url: str | None = None
+    text: str = Field(description="Content as Markdown")
+    links: list[ContentLink] = Field(default_factory=list)
+    modified_at: datetime | None = None
+    accessible: bool = True
+    note: str | None = None

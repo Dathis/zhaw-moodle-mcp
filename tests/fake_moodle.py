@@ -41,6 +41,8 @@ class FakeMoodle:
     posts: dict[int, list[dict]] = field(default_factory=dict)  # discussion id -> posts
     assign_pages: dict[int, str | None] = field(default_factory=dict)  # None -> redirect to course
     search_html: str = ""
+    labels: dict[int, str] = field(default_factory=dict)  # cmid -> label html on the course page
+    pages: dict[int, str | None] = field(default_factory=dict)  # cmid -> page view html, None -> redirect
     page_views: dict[str, int] = field(default_factory=dict)
 
     def resource_url(self, cmid: int) -> str:
@@ -93,6 +95,10 @@ class FakeMoodle:
             f'<li class="activity modtype_resource" data-id="{cmid}">'
             f'<img src="{BASE}/theme/image.php/x/core/1/f/pdf?filtericon=1"></li>'
             for cmid in self.resources
+        ) + "".join(
+            f'<li class="activity label modtype_label" data-id="{cmid}"><div class="activity-altcontent">'
+            f'{html}</div></li>'
+            for cmid, html in self.labels.items()
         )
         return httpx.Response(200, html=LOGGED_IN_PAGE.replace("</body>", f"<ul>{items}</ul></body>"))
 
@@ -152,6 +158,13 @@ class FakeMoodle:
             return httpx.Response(303, headers={"location": f"{BASE}/course/view.php?id={COURSE_ID}"})
         return httpx.Response(200, html=page)
 
+    def page_view(self, request: httpx.Request) -> httpx.Response:
+        self._count(request)
+        page = self.pages.get(int(request.url.params["id"]))
+        if page is None:
+            return httpx.Response(303, headers={"location": f"{BASE}/course/view.php?id={COURSE_ID}"})
+        return httpx.Response(200, html=page)
+
     def search_page(self, request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, html=LOGGED_IN_PAGE.replace("</body>", self.search_html + "</body>"))
 
@@ -166,3 +179,4 @@ class FakeMoodle:
         router.get(f"{BASE}/mod/forum/view.php").mock(side_effect=self.forum_page)
         router.get(f"{BASE}/mod/assign/view.php").mock(side_effect=self.assign_page)
         router.get(f"{BASE}/search/index.php").mock(side_effect=self.search_page)
+        router.get(f"{BASE}/mod/page/view.php").mock(side_effect=self.page_view)

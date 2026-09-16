@@ -11,14 +11,18 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import TypeVar
+from zoneinfo import ZoneInfo
 
 from .activity_service import ActivityService
 from .auth import SessionStore, interactive_login
 from .config import Config
 from .errors import AuthRequired, ErrorCode, MoodleError, SessionExpired
 from .models import (
+    ActivityContent,
     AuthStatus,
+    ContentLink,
     Course,
+    CourseModule,
     CourseStructure,
     CourseSyncSummary,
     DownloadedFile,
@@ -31,6 +35,7 @@ from .models import (
 from .models.course import CourseStatus
 from .moodle import courses as moodle_courses
 from .moodle.client import MoodleClient
+from .moodle.content import Content, parse_page_view
 from .moodle.resources import ResourceEntry, entries_from_structure, expand_folders
 from .sync.database import Database
 from .sync.sync_service import SyncService
@@ -57,6 +62,7 @@ class MoodleService:
         self._login_lock = asyncio.Lock()
         self._validated_at: float | None = None
         self._courses: dict[int, Course] = {}
+        self._label_texts: dict[int, dict[int, Content]] = {}  # course id -> label cmid -> content
         self.activities = ActivityService(self)
 
     async def aclose(self) -> None:
@@ -159,15 +165,63 @@ class MoodleService:
         course = await self.course(course_id)
 
         async def op() -> CourseStructure:
-            state, icons = await asyncio.gather(
+            state, page = await asyncio.gather(
                 moodle_courses.get_course_state(self.client, course_id),
-                moodle_courses.get_activity_icons(self.client, course_id),
+                moodle_courses.get_course_page(self.client, course_id),
             )
-            return moodle_courses.build_structure(course, state, icons)
+            self._label_texts[course_id] = page.labels
+            labels = {cmid: content.text for cmid, content in page.labels.items()}
+            return moodle_courses.build_structure(course, state, page.icons, labels)
 
         structure = await self.run(op)
         self.db.index_course(course, *moodle_courses.index_rows(structure))
         return structure
+
+    # --- page / label content ----------------------------------------------
+
+    async def _find_module(self, activity_id: int) -> tuple[Course, CourseModule, str]:
+        """Course, module and section path of an activity; refreshes the index if unknown."""
+        for attempt in range(2):
+            row = self.db.conn.execute(
+                "SELECT course_id FROM modules WHERE id = ? AND removed_at IS NULL", (activity_id,)).fetchone()
+            course_ids = [row["course_id"]] if row else []
+            if not course_ids and attempt == 0:
+                course_ids = [c.id for c in await self.list_courses("active")]
+            for course_id in course_ids:
+                structure = await self.get_course(course_id)
+                for section, module in moodle_courses.walk_modules(structure):
+                    if module.id == activity_id:
+                        return structure.course, module, section
+        raise MoodleError(ErrorCode.RESOURCE_NOT_FOUND, f"Activity {activity_id} not found in your courses.")
+
+    async def get_content(self, activity_id: int) -> ActivityContent:
+        course, module, section = await self._find_module(activity_id)
+        base = dict(id=module.id, course_id=course.id, course_name=course.name, section=section,
+                    name=module.name, module=module.module, url=module.url)
+        if module.module == "label":
+            content = self._label_texts.get(course.id, {}).get(module.id) or Content(text="")
+        elif module.module == "page":
+            tz = ZoneInfo(self.config.moodle.timezone)
+
+            async def op() -> Content | None:
+                html, path = await self.client.get_page("/mod/page/view.php", {"id": module.id})
+                if not path.endswith("/mod/page/view.php"):
+                    return None
+                return parse_page_view(html, self.client.base_url, tz)
+
+            content = await self.run(op)
+            if content is None:
+                return ActivityContent(**base, accessible=False, text="",
+                                       note="Moodle does not let you open this page (yet).")
+        else:
+            raise MoodleError(ErrorCode.RESOURCE_NOT_DOWNLOADABLE,
+                              f"{module.name!r} is a {module.type}; moodle_get_content supports pages and labels. "
+                              "Use moodle_download_resource for files and moodle_list_assignments for assignments.")
+        return ActivityContent(
+            **base, text=content.text, modified_at=content.modified_at,
+            links=[ContentLink(text=link.text, url=link.url, kind=link.kind, activity_id=link.activity_id)
+                   for link in content.links],
+        )
 
     # --- resources ----------------------------------------------------------
 

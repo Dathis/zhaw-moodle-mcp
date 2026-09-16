@@ -9,7 +9,7 @@ sees or stores your password; it reuses the authenticated browser session.
 
 Requirements and roadmap: [REQUIREMENTS.md](REQUIREMENTS.md) · Technical findings: [docs/spike-findings.md](docs/spike-findings.md)
 
-## Status: v0.2
+## Status: v0.2 (+ page/label content)
 
 | Tool | Purpose |
 |---|---|
@@ -17,7 +17,8 @@ Requirements and roadmap: [REQUIREMENTS.md](REQUIREMENTS.md) · Technical findin
 | `moodle_login` | Open the browser for SWITCH edu-ID login (other tools do this automatically when needed) |
 | `moodle_logout` | End the session and delete local cookies/browser profile |
 | `moodle_list_courses` | Courses, marked `active` / `past` / `future` |
-| `moodle_get_course` | Sections, subsections and all activities of a course |
+| `moodle_get_course` | Sections, subsections and all activities of a course, incl. the text of text blocks |
+| `moodle_get_content` | Text of a Moodle page or text block as Markdown, with its links |
 | `moodle_list_resources` | Files (pdf, powerpoint, word, …), folders (incl. their files), links, pages |
 | `moodle_download_resource` | Download a file or a whole folder, returns local paths |
 | `moodle_sync_course` | Download new/changed files, report renamed/removed ones (`dry_run` supported) |
@@ -87,7 +88,10 @@ SQLite metadata (course index for search/changes, known files, ETags, local path
   Files inside folders become searchable once `moodle_list_resources` or a sync has seen them.
 - Recent changes can only distinguish *new* from *updated* for courses the server already knew
   before the requested date; otherwise changes are reported as `changed`.
-- Reading assignments opens each assignment page, which Moodle logs as a view.
+- Reading assignments or pages opens them in Moodle, which is logged as a view (and may mark a
+  page as completed if the course tracks page views).
+- Files linked inside pages or text blocks are returned as links (`kind: file`) but cannot be
+  downloaded with `moodle_download_resource` yet.
 
 ## Configuration
 

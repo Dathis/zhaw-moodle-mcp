@@ -12,12 +12,21 @@ from .activity import (
     RecentChanges,
 )
 from .auth import AuthStatus, LogoutResult
-from .course import Course, CourseList, CourseModule, CourseSection, CourseStructure
+from .course import (
+    ActivityContent,
+    ContentLink,
+    Course,
+    CourseList,
+    CourseModule,
+    CourseSection,
+    CourseStructure,
+)
 from .resource import DownloadedFile, DownloadResult, Resource, ResourceList
 from .search import SearchHit, SearchResult
 from .sync import CourseSyncSummary, SyncAllResult, SyncChange, SyncResult
 
 __all__ = [
+    "ActivityContent",
     "ActivityDate",
     "Announcement",
     "AnnouncementList",
@@ -25,6 +34,7 @@ __all__ = [
     "AssignmentList",
     "Attachment",
     "AuthStatus",
+    "ContentLink",
     "Course",
     "CourseChanges",
     "CourseList",
