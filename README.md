@@ -31,13 +31,15 @@ Requirements and roadmap: [REQUIREMENTS.md](REQUIREMENTS.md) · Technical findin
 
 ## Setup
 
-Requires [uv](https://docs.astral.sh/uv/) and Google Chrome (or Edge / Playwright Chromium, see configuration).
+Requires [uv](https://docs.astral.sh/uv/) and a Chromium-based browser (Chrome, Edge, Brave or Vivaldi).
+The login opens in your default browser if it is one of these, otherwise in another installed one
+(Firefox and Safari can't be automated; on Windows Edge is always available).
 
 ```bash
 uv sync
 ```
 
-Log in once (opens Chrome, finishes automatically after the SWITCH edu-ID login):
+Log in once (opens the browser, finishes automatically after the SWITCH edu-ID login):
 
 ```bash
 uv run zhaw-moodle-mcp login
@@ -68,7 +70,7 @@ zhaw-moodle-mcp config-path  where the config file is expected
 ## How it works
 
 ```text
-SWITCH edu-ID login in Chrome (Playwright, visible window)
+SWITCH edu-ID login in a Chromium-based browser (Playwright, visible window)
         ↓  storage_state.json (cookies)
 httpx client ── Moodle AJAX service (/lib/ajax/service.php, session + sesskey):
              │    courses, course structure, calendar to-dos, module updates, forum posts
@@ -108,10 +110,12 @@ max_concurrent_requests = 4
 timezone = "Europe/Zurich" # how dates shown by Moodle are interpreted
 
 [browser]
-channel = "chrome"        # "chrome", "msedge" or "chromium" (needs: uv run playwright install chromium)
+name = "auto"             # "auto", "chrome", "msedge", "brave", "vivaldi" or "chromium"
+                          # ("chromium" needs: uvx --from zhaw-moodle-mcp playwright install chromium)
+# executable_path = "C:/path/to/browser.exe"  # any other Chromium-based browser, overrides name
 login_timeout = 300       # seconds to wait for the user to finish login
 auto_login = true         # open the login window automatically when the session expired
-# profile_directory = "<data dir>/browser-profile"
+# profile_directory = "<data dir>/browser-profile"  # one subfolder per browser
 
 [session]
 # storage_state = "<data dir>/auth/storage_state.json"

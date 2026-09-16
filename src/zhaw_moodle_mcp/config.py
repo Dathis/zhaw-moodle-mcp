@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 from platformdirs import user_config_dir, user_data_dir
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 APP_NAME = "zhaw-moodle-mcp"
 CONFIG_ENV_VAR = "ZHAW_MOODLE_MCP_CONFIG"
@@ -49,16 +49,22 @@ class MoodleConfig(_Section):
 
 
 class BrowserConfig(_Section):
-    # "chrome"/"msedge" use the installed browser; "chromium" needs `playwright install chromium`.
-    channel: Literal["chrome", "msedge", "chromium"] = "chrome"
+    # Browser for the login: "auto" = default browser if Chromium-based, else an installed one.
+    # "chromium" is Playwright's bundled browser (needs `playwright install chromium`).
+    # `channel` is the key used before v0.3.
+    name: Literal["auto", "chrome", "msedge", "brave", "vivaldi", "chromium"] = Field(
+        "auto", validation_alias=AliasChoices("name", "channel")
+    )
+    # Any other Chromium-based browser; overrides `name`
+    executable_path: Path | None = None
     login_timeout: int = 300
     auto_login: bool = True
     profile_directory: Path = DATA_DIR / "browser-profile"
 
-    @field_validator("profile_directory", mode="before")
+    @field_validator("profile_directory", "executable_path", mode="before")
     @classmethod
-    def _expand_dir(cls, v: str | Path) -> Path:
-        return _expand(v)
+    def _expand_dir(cls, v: str | Path | None) -> Path | None:
+        return None if v is None else _expand(v)
 
 
 class SessionConfig(_Section):
