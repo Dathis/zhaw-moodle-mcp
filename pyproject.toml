@@ -1,8 +1,22 @@
 [project]
 name = "zhaw-moodle-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "MCP server for ZHAW Moodle: courses, learning materials, downloads and sync via SWITCH edu-ID browser login"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["mcp", "moodle", "zhaw", "claude", "model-context-protocol"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Education",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Education",
+]
 authors = [
     { name = "Dathis", email = "danilvolodimirovich@gmail.com" }
 ]
@@ -16,6 +30,10 @@ dependencies = [
     "playwright>=1.63.0",
     "tzdata>=2026.4",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Dathis/zhaw-moodle-mcp"
+Issues = "https://github.com/Dathis/zhaw-moodle-mcp/issues"
 
 [project.scripts]
 zhaw-moodle-mcp = "zhaw_moodle_mcp:main"

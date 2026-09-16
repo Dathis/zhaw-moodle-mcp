@@ -7,9 +7,52 @@ learning materials and keep a local copy in sync.
 You log in yourself with SWITCH edu-ID in a normal browser window. The server never
 sees or stores your password; it reuses the authenticated browser session.
 
-Requirements and roadmap: [REQUIREMENTS.md](REQUIREMENTS.md) · Technical findings: [docs/spike-findings.md](docs/spike-findings.md)
+Requirements and roadmap: [REQUIREMENTS.md](https://github.com/Dathis/zhaw-moodle-mcp/blob/main/REQUIREMENTS.md) · Technical findings: [docs/spike-findings.md](https://github.com/Dathis/zhaw-moodle-mcp/blob/main/docs/spike-findings.md)
 
-## Status: v0.2 (+ page/label content)
+## Quick start
+
+You need [Claude Desktop](https://claude.ai/download) or Claude Code and a Chromium-based
+browser (Chrome, Edge, Brave or Vivaldi — on Windows Edge is always there).
+
+**1. Install uv** (runs the server and brings its own Python):
+
+- Windows (PowerShell): `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+- macOS / Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+
+**2. Add the server to Claude**
+
+*Claude Desktop:* Settings → Developer → Edit Config, paste this into `claude_desktop_config.json`
+(merge it if the file already has `mcpServers`) and restart Claude Desktop completely:
+
+```json
+{
+  "mcpServers": {
+    "zhaw-moodle": {
+      "command": "uvx",
+      "args": ["zhaw-moodle-mcp@latest"]
+    }
+  }
+}
+```
+
+*Claude Code:*
+
+```bash
+claude mcp add zhaw-moodle -- uvx zhaw-moodle-mcp@latest
+```
+
+**3. Use it:** ask *"Which Moodle courses do I have?"*. The first time, a browser window opens —
+log in with SWITCH edu-ID there and the window closes by itself.
+Files are downloaded to the `ZHAW` folder in your home directory.
+
+Troubleshooting:
+
+- *Claude Desktop can't find `uvx`:* quit Claude Desktop completely (also from the tray) and start it
+  again. If that doesn't help, use the full path as `command`, e.g. `C:/Users/<you>/.local/bin/uvx.exe`.
+- *No browser opens:* see `[browser]` in [Configuration](#configuration).
+- Updates are installed automatically the next time Claude starts (`@latest`).
+
+## Status: v0.3
 
 | Tool | Purpose |
 |---|---|
@@ -29,7 +72,7 @@ Requirements and roadmap: [REQUIREMENTS.md](REQUIREMENTS.md) · Technical findin
 | `moodle_get_announcements` | Lecturer announcements with message text |
 | `moodle_get_recent_changes` | New/updated materials, announcements and deadlines since a date (`2026-09-14`, `7d`) |
 
-## Setup
+## Development setup
 
 Requires [uv](https://docs.astral.sh/uv/) and a Chromium-based browser (Chrome, Edge, Brave or Vivaldi).
 The login opens in your default browser if it is one of these, otherwise in another installed one
