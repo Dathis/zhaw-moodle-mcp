@@ -6,6 +6,7 @@ The only place that uses Playwright. The password never passes through this code
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from urllib.parse import urlparse
@@ -79,7 +80,5 @@ async def interactive_login(base_url: str, browser: BrowserConfig, store: Sessio
         except PlaywrightError as exc:
             raise MoodleError(ErrorCode.LOGIN_FAILED, "The login browser failed or was closed.") from exc
         finally:
-            try:
+            with contextlib.suppress(PlaywrightError):
                 await context.close()
-            except PlaywrightError:
-                pass

@@ -7,9 +7,12 @@ import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import TypeVar
 
+from .activity_service import ActivityService
 from .auth import SessionStore, interactive_login
 from .config import Config
 from .errors import AuthRequired, ErrorCode, MoodleError, SessionExpired
@@ -17,10 +20,12 @@ from .models import (
     AuthStatus,
     Course,
     CourseStructure,
+    CourseSyncSummary,
     DownloadedFile,
     DownloadResult,
     LogoutResult,
     ResourceList,
+    SyncAllResult,
     SyncResult,
 )
 from .models.course import CourseStatus
@@ -35,6 +40,13 @@ log = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
+def http_date(value: str | None) -> datetime | None:
+    try:
+        return parsedate_to_datetime(value) if value else None
+    except (TypeError, ValueError):
+        return None
+
+
 class MoodleService:
     def __init__(self, config: Config) -> None:
         self.config = config
@@ -45,6 +57,7 @@ class MoodleService:
         self._login_lock = asyncio.Lock()
         self._validated_at: float | None = None
         self._courses: dict[int, Course] = {}
+        self.activities = ActivityService(self)
 
     async def aclose(self) -> None:
         await self.client.aclose()
@@ -115,7 +128,7 @@ class MoodleService:
                     "The Moodle session has expired. Call moodle_login.")
             await self._interactive_login()
 
-    async def _run(self, op: Callable[[], Awaitable[T]]) -> T:
+    async def run(self, op: Callable[[], Awaitable[T]]) -> T:
         """Run an idempotent operation; on session expiry log in again and retry once."""
         await self._ensure_session()
         try:
@@ -130,11 +143,11 @@ class MoodleService:
     # --- courses ------------------------------------------------------------
 
     async def list_courses(self, status: CourseStatus | None) -> list[Course]:
-        courses = await self._run(lambda: moodle_courses.list_courses(self.client))
+        courses = await self.run(lambda: moodle_courses.list_courses(self.client))
         self._courses = {c.id: c for c in courses}
         return [c for c in courses if status is None or c.status == status]
 
-    async def _course(self, course_id: int) -> Course:
+    async def course(self, course_id: int) -> Course:
         if course_id not in self._courses:
             await self.list_courses(None)
         try:
@@ -143,7 +156,7 @@ class MoodleService:
             raise MoodleError(ErrorCode.COURSE_NOT_FOUND, f"You are not enrolled in course {course_id}.") from None
 
     async def get_course(self, course_id: int) -> CourseStructure:
-        course = await self._course(course_id)
+        course = await self.course(course_id)
 
         async def op() -> CourseStructure:
             state, icons = await asyncio.gather(
@@ -152,7 +165,9 @@ class MoodleService:
             )
             return moodle_courses.build_structure(course, state, icons)
 
-        return await self._run(op)
+        structure = await self.run(op)
+        self.db.index_course(course, *moodle_courses.index_rows(structure))
+        return structure
 
     # --- resources ----------------------------------------------------------
 
@@ -161,7 +176,7 @@ class MoodleService:
         entries = entries_from_structure(structure)
         if expand:
             only = expand if isinstance(expand, set) else None
-            entries = await self._run(lambda: expand_folders(self.client, entries, only))
+            entries = await self.run(lambda: expand_folders(self.client, entries, only))
         if record:  # sync records itself after comparing with the stored state
             self.db.upsert_course(structure.course)
             self.db.upsert_resources(e.resource for e in entries)
@@ -176,6 +191,7 @@ class MoodleService:
             if stored and stored.downloaded_at:
                 e.resource.filename = stored.filename
                 e.resource.size = stored.size
+                e.resource.modified_at = http_date(stored.last_modified)
                 e.resource.local_path = stored.local_path
             resources.append(e.resource)
         return ResourceList(course_id=course_id, resources=resources)
@@ -199,7 +215,7 @@ class MoodleService:
                 raise
             for e in entries:
                 if e.id == resource_id:
-                    return await self._course(course_id), e
+                    return await self.course(course_id), e
         raise MoodleError(ErrorCode.RESOURCE_NOT_FOUND, f"Resource {resource_id} not found in your courses.")
 
     async def download_resource(self, resource_id: str, destination: str | None,
@@ -222,7 +238,7 @@ class MoodleService:
             return [DownloadedFile(resource_id=t.id, path=str(r.path), size=r.size, status=r.status)
                     for t, r in zip(targets, results, strict=True)]
 
-        return DownloadResult(resource_id=resource_id, files=await self._run(op))
+        return DownloadResult(resource_id=resource_id, files=await self.run(op))
 
     def _destination(self, destination: str | None) -> Path | None:
         if not destination:
@@ -233,11 +249,33 @@ class MoodleService:
 
     # --- sync ---------------------------------------------------------------
 
+    async def sync_all(self, dry_run: bool, update_changed: bool) -> SyncAllResult:
+        """Sync all active courses one after another; one failing course does not stop the rest."""
+        summaries = []
+        for course in await self.list_courses("active"):
+            summary = CourseSyncSummary(course_id=course.id, course_name=course.name)
+            try:
+                r = await self.sync_course(course.id, dry_run, update_changed)
+            except (AuthRequired, SessionExpired):
+                raise
+            except MoodleError as exc:
+                summary.error = str(exc)
+            else:
+                summary = CourseSyncSummary(
+                    course_id=course.id, course_name=course.name, new=len(r.new), updated=len(r.updated),
+                    restored=len(r.restored), renamed=len(r.renamed), removed=len(r.removed),
+                    failed=len(r.failed), unchanged=r.unchanged,
+                    new_files=[c.name for c in (*r.new, *r.updated)][:20], failed_items=r.failed,
+                )
+            summaries.append(summary)
+        return SyncAllResult(dry_run=dry_run, courses=summaries,
+                             download_directory=str(self.config.moodle.download_directory))
+
     async def sync_course(self, course_id: int, dry_run: bool, update_changed: bool) -> SyncResult:
-        course = await self._course(course_id)
+        course = await self.course(course_id)
 
         async def op() -> SyncResult:
             entries = await self._entries(course_id, True, record=False)
             return await self.sync.sync_course(course, entries, dry_run=dry_run, update_changed=update_changed)
 
-        return await self._run(op)
+        return await self.run(op)

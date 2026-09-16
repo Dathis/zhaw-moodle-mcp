@@ -10,6 +10,7 @@ from typing import Any
 from ..errors import ErrorCode, MoodleError
 from ..models import Course, CourseModule, CourseSection, CourseStructure
 from ..models.course import CourseStatus
+from ..sync.database import IndexedModule, IndexedSection
 from .client import MoodleAjaxError, MoodleClient
 from .parser import DOWNLOADABLE_MODULES, MODULE_TYPES, clean_text, parse_activity_icons, type_from_icon
 
@@ -110,3 +111,23 @@ def build_structure(course: Course, state: dict[str, Any], icons: dict[int, str]
         parent = sections.get(parents.get(sid, ""))
         (parent.subsections if parent else roots).append(section)
     return CourseStructure(course=course, sections=roots)
+
+
+def index_rows(structure: CourseStructure) -> tuple[list[IndexedSection], list[IndexedModule]]:
+    """Flatten a course structure for the search/changes index."""
+    sections: list[IndexedSection] = []
+    modules: list[IndexedModule] = []
+
+    def walk(items: list[CourseSection], parents: list[str]) -> None:
+        for s in items:
+            path = [*parents, s.title]
+            sections.append(IndexedSection(id=s.id, number=s.number, title=s.title, path=" / ".join(path)))
+            for m in s.modules:
+                modules.append(IndexedModule(
+                    id=m.id, section=" / ".join(path), name=m.name, module=m.module, type=m.type,
+                    url=m.url, downloadable=m.downloadable,
+                ))
+            walk(s.subsections, path)
+
+    walk(structure.sections, [])
+    return sections, modules

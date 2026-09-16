@@ -23,3 +23,24 @@ class SyncResult(BaseModel):
     failed: list[SyncChange] = Field(default_factory=list)
     unchanged: int = 0
     download_directory: str
+
+
+class CourseSyncSummary(BaseModel):
+    course_id: int
+    course_name: str
+    new: int = 0
+    updated: int = 0
+    restored: int = 0
+    renamed: int = 0
+    removed: int = 0
+    failed: int = 0
+    unchanged: int = 0
+    new_files: list[str] = Field(default_factory=list, description="Names of new/updated files (max 20)")
+    failed_items: list[SyncChange] = Field(default_factory=list)
+    error: str | None = Field(default=None, description="Set if the whole course could not be synced")
+
+
+class SyncAllResult(BaseModel):
+    dry_run: bool
+    courses: list[CourseSyncSummary]
+    download_directory: str

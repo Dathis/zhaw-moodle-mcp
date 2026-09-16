@@ -34,6 +34,8 @@ class MoodleConfig(_Section):
     download_directory: Path = Field(default_factory=lambda: Path.home() / "ZHAW")
     request_timeout: float = 60.0
     max_concurrent_requests: int = 4
+    # Moodle shows dates as local text; used to interpret them
+    timezone: str = "Europe/Zurich"
 
     @field_validator("base_url")
     @classmethod
@@ -79,11 +81,17 @@ class SyncConfig(_Section):
         return _expand(v)
 
 
+class SearchConfig(_Section):
+    # Re-read active courses before searching if the index is older than this
+    index_max_age_minutes: int = 60
+
+
 class Config(_Section):
     moodle: MoodleConfig = Field(default_factory=MoodleConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
     session: SessionConfig = Field(default_factory=SessionConfig)
     sync: SyncConfig = Field(default_factory=SyncConfig)
+    search: SearchConfig = Field(default_factory=SearchConfig)
 
 
 def config_path() -> Path:

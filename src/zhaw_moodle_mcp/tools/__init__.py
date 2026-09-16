@@ -34,7 +34,7 @@ def tool_call(name: str, **ids: object) -> Iterator[None]:
 
 
 def register_all(server: MCPServer, service: MoodleService) -> None:
-    from . import auth, courses, resources, sync
+    from . import activities, auth, courses, resources, search, sync
 
-    for module in (auth, courses, resources, sync):
+    for module in (auth, courses, resources, sync, search, activities):
         module.register(server, service)

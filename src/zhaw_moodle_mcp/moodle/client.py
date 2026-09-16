@@ -183,6 +183,11 @@ class MoodleClient:
         return item["data"]
 
     async def get_html(self, path: str, params: dict[str, Any] | None = None) -> str:
+        return (await self.get_page(path, params))[0]
+
+    async def get_page(self, path: str, params: dict[str, Any] | None = None) -> tuple[str, str]:
+        """HTML of an authenticated page and the URL path it finally came from
+        (Moodle redirects e.g. restricted activities to the course page)."""
         r = await self._request("GET", path, params=params, follow_redirects=False)
         if self._is_login_redirect(r):
             raise SessionExpired()
@@ -194,7 +199,7 @@ class MoodleClient:
             raise MoodleError(ErrorCode.MOODLE_ERROR, f"{path} returned HTTP {r.status_code}.")
         if not parse_page_session(r.text).logged_in:
             raise SessionExpired()
-        return r.text
+        return r.text, r.url.path
 
     async def resolve_resource_file(self, cmid: int) -> str:
         """pluginfile URL of a mod_resource (one view request, no download)."""

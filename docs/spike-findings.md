@@ -64,3 +64,43 @@ Module types seen across 5 courses: resource, folder, url, page, label, forum, a
 - Idle timeout of `MoodleSession`.
 - Does re-login with persistent profile complete without user interaction (SSO still valid)?
 - `mod/url` external target resolution; `mod/page` content handling.
+
+---
+
+# Spike v0.2 — assignments, deadlines, announcements, search, recent changes (2026-09-16)
+
+Script: `spike/probe_v02.py`.
+
+## AJAX availability
+
+| Function | Result | Use |
+|---|---|---|
+| `core_calendar_get_action_events_by_timesort` | OK | deadlines: only open to-dos (assign `due`, quiz `close`), `action.name/actionable`, `overdue`, `timesort` |
+| `core_calendar_get_calendar_monthly_view` | OK | all events of a month incl. quiz `open` |
+| `core_calendar_get_calendar_upcoming_view` | OK | upcoming events (user lookahead) |
+| `core_calendar_get_action_events_by_courses` | OK | — |
+| `core_course_get_updates_since` | OK | per module: `configuration` / `contentfiles` + `timeupdated` → recent changes |
+| `core_course_check_updates` | OK | — |
+| `mod_forum_get_discussion_posts` | OK | announcement body, author, attachments |
+| `message_popup_get_popup_notifications` | OK | (notifications: quiz opens, new forum posts) |
+| `block_recentlyaccesseditems_get_recent_items` | OK | — |
+| `mod_assign_get_assignments`, `mod_assign_get_submission_status` | `servicenotavailable` | → HTML |
+| `mod_forum_get_forums_by_courses`, `mod_forum_get_forum_discussions` | `servicenotavailable` | → HTML |
+| `core_search_get_results`, `core_calendar_get_calendar_events`, `core_course_get_course_module` | `servicenotavailable` | → HTML |
+
+## HTML sources
+
+- **Assignment** `mod/assign/view.php?id=<cmid>`:
+  - dates: `[data-region=activity-dates] > div` = `<strong>Fällig:</strong> Sonntag, 8. November 2026, 23:59` (localised text only)
+  - status: `table.generaltable`, rows label/value (German). Language-independent hints are td classes:
+    `submissionstatus<status>` (absent when nothing was submitted), `submissiongraded` / `submissionnotgraded`,
+    `timeremaining` / `overdue` / `earlysubmission` / `latesubmission`.
+  - viewing the page logs a module view (completion for assignments is usually "submit", so harmless).
+- **Announcements**: the news forum has `<body class="… forumtype-news …">` (named "Ankündigungen").
+  `mod/forum/view.php?id=<cmid>` lists discussions as `tr[data-region=discussion-list-item][data-discussionid]`
+  with `td.topic`, `td.author`, `time#time-created-<id>[data-timestamp]`, `time#time-modified-<id>[data-timestamp]`.
+  Empty forum: no rows.
+- **Global search** `search/index.php?q=…` works (Moodle global search is enabled): `.result` →
+  `h4.result-title a` (URL with `#module-<cmid>` or module view URL), icon URL contains the module type,
+  `.result-content` snippet, `.result-context-info` course link. Finds label/text content too.
+- `course/recent.php` exists but is a large, section-grouped page; `core_course_get_updates_since` is simpler.

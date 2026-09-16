@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "zhaw-moodle": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "zhaw-moodle-mcp"]
+    }
+  }
+}

@@ -33,6 +33,15 @@ class FakeMoodle:
     folder: dict[str, FakeFile] = field(default_factory=dict)
     views: int = 0  # mod/resource/view.php hits
     downloads: int = 0
+    # v0.2: other activities on the course page, calendar, updates, forum, assignments, search
+    extra_cms: list[dict] = field(default_factory=list)
+    events: list[dict] = field(default_factory=list)
+    updates: list[dict] = field(default_factory=list)
+    forums: dict[int, str] = field(default_factory=dict)  # cmid -> forum view html
+    posts: dict[int, list[dict]] = field(default_factory=dict)  # discussion id -> posts
+    assign_pages: dict[int, str | None] = field(default_factory=dict)  # None -> redirect to course
+    search_html: str = ""
+    page_views: dict[str, int] = field(default_factory=dict)
 
     def resource_url(self, cmid: int) -> str:
         _, filename, f = self.resources[cmid]
@@ -60,9 +69,21 @@ class FakeMoodle:
             cms = [{"id": str(cmid), "name": name, "module": "resource", "url": "", "visible": True}
                    for cmid, (name, _, _) in self.resources.items()]
             cms.append({"id": "90", "name": "Material", "module": "folder", "url": "", "visible": True})
+            cms.extend(self.extra_cms)
             state = {"section": [{"id": "1", "number": 1, "title": "Woche 1",
                                   "cmlist": [c["id"] for c in cms]}], "cm": cms}
             return httpx.Response(200, json=[{"error": False, "data": json.dumps(state)}])
+        if method == "core_calendar_get_action_events_by_timesort":
+            args = call["args"]
+            events = [e for e in self.events
+                      if args["timesortfrom"] <= e["timesort"] <= args.get("timesortto", 2**40)]
+            return httpx.Response(200, json=[{"error": False, "data": {"events": events}}])
+        if method == "core_course_get_updates_since":
+            instances = [u for u in self.updates if u["updates"][0]["timeupdated"] >= call["args"]["since"]]
+            return httpx.Response(200, json=[{"error": False, "data": {"instances": instances, "warnings": []}}])
+        if method == "mod_forum_get_discussion_posts":
+            posts = self.posts.get(call["args"]["discussionid"], [])
+            return httpx.Response(200, json=[{"error": False, "data": {"posts": posts}}])
         return httpx.Response(200, json=[{"error": True, "exception": {"errorcode": "servicenotavailable"}}])
 
     def course_view(self, request: httpx.Request) -> httpx.Response:
@@ -113,6 +134,27 @@ class FakeMoodle:
             headers["etag"] = headers["etag"][:-1] + '-gzip"'
         return httpx.Response(200, headers=headers, content=f.content)
 
+    def _count(self, request: httpx.Request) -> None:
+        key = f"{request.url.path}?{request.url.query.decode()}"
+        self.page_views[key] = self.page_views.get(key, 0) + 1
+
+    def forum_page(self, request: httpx.Request) -> httpx.Response:
+        self._count(request)
+        cmid = int(request.url.params["id"])
+        if cmid not in self.forums:
+            return httpx.Response(404)
+        return httpx.Response(200, html=self.forums[cmid])
+
+    def assign_page(self, request: httpx.Request) -> httpx.Response:
+        self._count(request)
+        page = self.assign_pages.get(int(request.url.params["id"]))
+        if page is None:
+            return httpx.Response(303, headers={"location": f"{BASE}/course/view.php?id={COURSE_ID}"})
+        return httpx.Response(200, html=page)
+
+    def search_page(self, request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, html=LOGGED_IN_PAGE.replace("</body>", self.search_html + "</body>"))
+
     def mount(self, router: respx.MockRouter) -> None:
         router.get(f"{BASE}/my/").mock(side_effect=self.my)
         router.post(f"{BASE}/lib/ajax/service.php").mock(side_effect=self.ajax)
@@ -121,3 +163,6 @@ class FakeMoodle:
         router.get(f"{BASE}/mod/resource/view.php").mock(side_effect=self.resource_view)
         router.route(url__startswith=f"{BASE}/pluginfile.php/").mock(side_effect=self.pluginfile)
         router.get(f"{BASE}/login/logout.php").mock(return_value=httpx.Response(303))
+        router.get(f"{BASE}/mod/forum/view.php").mock(side_effect=self.forum_page)
+        router.get(f"{BASE}/mod/assign/view.php").mock(side_effect=self.assign_page)
+        router.get(f"{BASE}/search/index.php").mock(side_effect=self.search_page)
